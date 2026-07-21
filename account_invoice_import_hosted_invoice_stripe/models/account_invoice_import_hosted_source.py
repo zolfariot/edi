@@ -24,8 +24,11 @@ class AccountInvoiceImportHostedSource(models.Model):
         if provider:
             return provider
         parsed = urlparse(normalized_url)
-        if parsed.netloc.endswith("invoice.stripe.com") and parsed.path.startswith(
-            "/i/"
+        host = (parsed.hostname or "").lower()
+        if (
+            parsed.scheme == "https"
+            and host == "invoice.stripe.com"
+            and parsed.path.startswith("/i/")
         ):
             return "stripe"
         return False
