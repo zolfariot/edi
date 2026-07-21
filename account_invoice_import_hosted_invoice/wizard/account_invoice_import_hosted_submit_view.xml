@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<odoo>
+    <record id="account_invoice_import_hosted_submit_form" model="ir.ui.view">
+        <field name="name">account.invoice.import.hosted.submit.form</field>
+        <field name="model">account.invoice.import.hosted.submit</field>
+        <field name="arch" type="xml">
+            <form string="Import Hosted Vendor Bills">
+                <group>
+                    <field name="company_id" groups="base.group_multi_company" />
+                    <field name="partner_id" />
+                    <field
+                        name="url_text"
+                        placeholder="One hosted invoice URL per line"
+                        nolabel="1"
+                    />
+                </group>
+                <footer>
+                    <button
+                        name="action_submit_and_process"
+                        type="object"
+                        class="btn-primary"
+                        string="Submit and Process"
+                    />
+                    <button special="cancel" string="Cancel" class="oe_link" />
+                </footer>
+            </form>
+        </field>
+    </record>
+
+    <record id="account_invoice_import_hosted_submit_action" model="ir.actions.act_window">
+        <field name="name">Import Hosted Vendor Bills</field>
+        <field name="res_model">account.invoice.import.hosted.submit</field>
+        <field name="view_mode">form</field>
+        <field name="target">new</field>
+    </record>
+</odoo>

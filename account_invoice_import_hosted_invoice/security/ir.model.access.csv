@@ -1,0 +1,5 @@
+id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_account_invoice_import_hosted_source_manager,Full access on hosted invoice sources to account manager,model_account_invoice_import_hosted_source,account.group_account_manager,1,1,1,1
+access_account_invoice_import_hosted_source_invoice,Read and process access on hosted invoice sources to invoice users,model_account_invoice_import_hosted_source,account.group_account_invoice,1,1,1,0
+access_account_invoice_import_hosted_source_readonly,Read access on hosted invoice sources to auditors,model_account_invoice_import_hosted_source,account.group_account_readonly,1,0,0,0
+access_account_invoice_import_hosted_submit,Access on submit hosted invoice wizard,model_account_invoice_import_hosted_submit,account.group_account_invoice,1,1,1,0
