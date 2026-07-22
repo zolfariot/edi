@@ -85,7 +85,7 @@ class AccountInvoiceImportHostedSource(models.Model):
         Step 1 – GET invoicedata.stripe.com/hosted_invoice_page/{acct}/{secret}
                  Returns JSON with ``ephemeral_key`` and ``invoice_id``.
         Step 2 – GET api.stripe.com/v1/invoices/{invoice_id}/hosted
-                 Requires ``Authorization: ****** and ``Stripe-Version`` headers.
+                 Requires ``Authorization: ******`` and ``Stripe-Version`` headers.
         """
         parsed = urlparse(normalized_url)
         # Path is /i/{acct}/{secret}[/{extra}]
