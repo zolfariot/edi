@@ -85,8 +85,7 @@ class AccountInvoiceImportHostedSource(models.Model):
         Step 1 – GET invoicedata.stripe.com/hosted_invoice_page/{acct}/{secret}
                  Returns JSON with ``ephemeral_key`` and ``invoice_id``.
         Step 2 – GET api.stripe.com/v1/invoices/{invoice_id}/hosted
-                 Requires ``Authorization: ****** and
-                 ``Stripe-Version`` headers.
+                 Requires ``Authorization: ****** and ``Stripe-Version`` headers.
         """
         parsed = urlparse(normalized_url)
         # Path is /i/{acct}/{secret}[/{extra}]
@@ -134,7 +133,7 @@ class AccountInvoiceImportHostedSource(models.Model):
                 "Accept": "application/json",
             }
         )
-        logger.info("Stripe hosted API step2: fetching invoice %s.", invoice_id)
+        logger.info("Stripe hosted API step2: fetching invoice metadata.")
         step2_resp = self._stripe_hosted_api_get(step2_url, headers=step2_headers)
         invoice_data = step2_resp.json()
 
