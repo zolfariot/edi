@@ -110,6 +110,88 @@ class TestHostedInvoiceImportStripe(TransactionCase):
         )
         self.assertEqual(len(attachments), 2)
 
+    def test_stripe_js_shell_hosted_api_fallback(self):
+        """JS-only shell page triggers the 2-step hosted API fallback flow."""
+        shell_html = "<html><body><div id=\"app\"></div></body></html>"
+        step1_json = {
+            "ephemeral_key": "ek_live_testkey123",
+            "invoice_id": "in_test_abc456",
+        }
+        step2_json = {
+            "id": "in_test_abc456",
+            "object": "invoice",
+            "number": "INV-2026-API-0001",
+            "currency": "usd",
+            "total": 1200,
+            "subtotal": 1000,
+            "invoice_pdf": "https://pay.stripe.com/invoice/in_test_abc456/pdf",
+            "status_transitions": {"finalized_at": None},
+            "due_date": None,
+        }
+
+        def _json_resp(url, json_data):
+            resp = Mock()
+            resp.url = url
+            resp.text = ""
+            resp.content = b""
+            resp.raise_for_status = Mock()
+            resp.json = Mock(return_value=json_data)
+            return resp
+
+        with patch(
+            "odoo.addons.account_invoice_import_hosted_invoice_stripe.models"
+            ".account_invoice_import_hosted_source.requests.get"
+        ) as mock_get:
+            mock_get.side_effect = [
+                # 1. Shell HTML page – no useful metadata or PDF links
+                self._response(
+                    "https://invoice.stripe.com/i/acct_test/live_secret?s=ap",
+                    text=shell_html,
+                ),
+                # 2. Step1 – invoicedata.stripe.com returns ephemeral_key/invoice_id
+                _json_resp(
+                    "https://invoicedata.stripe.com/hosted_invoice_page"
+                    "/acct_test/live_secret?creditNoteRecoverySlug=",
+                    json_data=step1_json,
+                ),
+                # 3. Step2 – api.stripe.com returns invoice metadata
+                _json_resp(
+                    "https://api.stripe.com/v1/invoices/in_test_abc456/hosted",
+                    json_data=step2_json,
+                ),
+                # 4. PDF download
+                self._response(
+                    "https://pay.stripe.com/invoice/in_test_abc456/pdf",
+                    content=b"stripe-pdf-content",
+                ),
+            ]
+            wizard = self.env["account.invoice.import.hosted.submit"].create(
+                {
+                    "company_id": self.company.id,
+                    "partner_id": self.partner.id,
+                    "url_text": "https://invoice.stripe.com/i/acct_test/live_secret?s=ap",
+                }
+            )
+            wizard.action_submit_and_process()
+
+        source = self.env["account.invoice.import.hosted.source"].search(
+            [], limit=1
+        )
+        self.assertEqual(source.state, "processed")
+        self.assertEqual(source.provider, "stripe")
+        self.assertEqual(source.invoice_number, "INV-2026-API-0001")
+        self.assertTrue(source.move_id)
+        self.assertEqual(source.move_id.ref, "INV-2026-API-0001")
+
+        attachment = self.env["ir.attachment"].search(
+            [
+                ("res_model", "=", "account.move"),
+                ("res_id", "=", source.move_id.id),
+                ("name", "=", "stripe_invoice_INV-2026-API-0001.pdf"),
+            ]
+        )
+        self.assertEqual(len(attachment), 1)
+
     def test_stripe_duplicate_on_invoice_ref(self):
         html_1 = """
             <html><body>
