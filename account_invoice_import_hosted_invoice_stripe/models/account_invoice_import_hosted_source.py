@@ -4,16 +4,20 @@
 import json
 import logging
 import re
-from datetime import date
+from datetime import date, datetime, timezone
 from urllib.parse import urljoin, urlparse
 
 import requests
 from dateutil import parser as date_parser
 from lxml import html
 
-from odoo import fields, models
+from odoo import _, fields, models
+from odoo.exceptions import UserError
 
 logger = logging.getLogger(__name__)
+
+_STRIPE_API_VERSION = "2026-06-24.dahlia"
+_STRIPE_USER_AGENT = "Mozilla/5.0"
 
 
 class AccountInvoiceImportHostedSource(models.Model):
@@ -56,6 +60,121 @@ class AccountInvoiceImportHostedSource(models.Model):
             filename = self._stripe_attachment_filename(kind, link)
             attachments.append({"filename": filename, "content": content})
         metadata["attachments"] = attachments
+
+        # Fallback to the Stripe hosted API when HTML extraction yields nothing
+        # useful (JS-only shell page).
+        if self._stripe_should_use_hosted_api(metadata):
+            logger.info(
+                "Stripe HTML extraction yielded no metadata/attachments; "
+                "falling back to hosted API flow."
+            )
+            return self._stripe_hosted_api_fetch(normalized_url)
+
+        return metadata
+
+    def _stripe_should_use_hosted_api(self, metadata):
+        """Return True when HTML extraction produced no useful data."""
+        has_attachments = bool(metadata.get("attachments"))
+        has_invoice_number = bool(metadata.get("invoice_number"))
+        has_amount = metadata.get("amount_total") is not None
+        return not has_attachments and not has_invoice_number and not has_amount
+
+    def _stripe_hosted_api_fetch(self, normalized_url):
+        """2-step Stripe hosted invoice API flow for JS-shell pages.
+
+        Step 1 – GET invoicedata.stripe.com/hosted_invoice_page/{acct}/{secret}
+                 Returns JSON with ``ephemeral_key`` and ``invoice_id``.
+        Step 2 – GET api.stripe.com/v1/invoices/{invoice_id}/hosted
+                 Requires ``Authorization: ******`` and ``Stripe-Version`` headers.
+        """
+        parsed = urlparse(normalized_url)
+        # Path is /i/{acct}/{secret}[/{extra}]
+        path_parts = parsed.path.strip("/").split("/")
+        if len(path_parts) < 3 or path_parts[0] != "i":
+            raise UserError(
+                _("Cannot parse account/secret from Stripe URL '%(url)s'.", url=parsed.path)
+            )
+        acct = path_parts[1]
+        secret = path_parts[2]
+
+        browser_headers = {
+            "User-Agent": _STRIPE_USER_AGENT,
+            "Accept": "application/json, text/plain, */*",
+            "Origin": "https://invoice.stripe.com",
+            "Referer": normalized_url,
+        }
+
+        # Step 1 – fetch ephemeral_key and invoice_id
+        step1_url = (
+            f"https://invoicedata.stripe.com/hosted_invoice_page/{acct}/{secret}"
+            "?creditNoteRecoverySlug="
+        )
+        logger.info("Stripe hosted API step1: fetching invoice page data.")
+        step1_resp = self._stripe_hosted_api_get(step1_url, headers=browser_headers)
+        step1_data = step1_resp.json()
+        ephemeral_key = step1_data.get("ephemeral_key")
+        invoice_id = step1_data.get("invoice_id")
+        if not ephemeral_key or not invoice_id:
+            raise UserError(
+                _(
+                    "Stripe hosted API step1 did not return ephemeral_key/invoice_id "
+                    "(invoice_id=%(inv)s).",
+                    inv=invoice_id,
+                )
+            )
+
+        # Step 2 – fetch invoice metadata using the ephemeral key
+        step2_url = f"https://api.stripe.com/v1/invoices/{invoice_id}/hosted"
+        step2_headers = dict(browser_headers)
+        step2_headers.update(
+            {
+                "Authorization": f"Bearer {ephemeral_key}",
+                "Stripe-Version": _STRIPE_API_VERSION,
+                "Accept": "application/json",
+            }
+        )
+        logger.info("Stripe hosted API step2: fetching invoice metadata.")
+        step2_resp = self._stripe_hosted_api_get(step2_url, headers=step2_headers)
+        invoice_data = step2_resp.json()
+
+        return self._stripe_map_hosted_api_payload(invoice_data, normalized_url)
+
+    def _stripe_hosted_api_get(self, url, headers=None):
+        """HTTP GET helper used exclusively for the hosted API flow."""
+        response = requests.get(url, headers=headers, timeout=30, allow_redirects=True)
+        response.raise_for_status()
+        return response
+
+    def _stripe_map_hosted_api_payload(self, invoice_data, normalized_url):
+        """Map a Stripe /v1/invoices/{id}/hosted response to the standard payload."""
+        currency = (invoice_data.get("currency") or "").upper()
+        total = invoice_data.get("total")
+        subtotal = invoice_data.get("subtotal")
+        status_ts = (invoice_data.get("status_transitions") or {}).get("finalized_at")
+
+        metadata = {
+            "invoice_number": invoice_data.get("number") or False,
+            "currency_iso": currency or False,
+            "amount_total": total / 100 if total is not None else None,
+            "amount_untaxed": subtotal / 100 if subtotal is not None else None,
+            "invoice_date": self._stripe_parse_date(status_ts),
+            "due_date": self._stripe_parse_date(invoice_data.get("due_date")),
+            "description": "Stripe hosted invoice",
+            "attachments": [],
+        }
+
+        pdf_url = invoice_data.get("invoice_pdf")
+        if pdf_url:
+            content = self._stripe_download_binary(pdf_url)
+            if content:
+                inv_num = metadata.get("invoice_number")
+                filename = (
+                    f"stripe_invoice_{inv_num}.pdf" if inv_num else "stripe_invoice.pdf"
+                )
+                metadata["attachments"].append(
+                    {"filename": filename, "content": content}
+                )
+
         return metadata
 
     def _stripe_http_get(self, url):
@@ -225,6 +344,13 @@ class AccountInvoiceImportHostedSource(models.Model):
     def _stripe_parse_date(self, date_text):
         if not date_text:
             return False
+        # Stripe API returns Unix timestamps as integers for date fields
+        if isinstance(date_text, (int, float)):
+            try:
+                parsed = datetime.fromtimestamp(date_text, tz=timezone.utc).date()
+                return fields.Date.to_string(parsed)
+            except Exception:
+                return False
         try:
             parsed = date_parser.parse(str(date_text)).date()
         except Exception:
