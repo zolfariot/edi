@@ -155,4 +155,3 @@ class AccountInvoiceDownloadConfig(models.Model):
             invoices.append(parsed_inv)
 
         return invoices
-
