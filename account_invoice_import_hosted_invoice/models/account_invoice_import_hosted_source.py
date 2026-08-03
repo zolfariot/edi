@@ -352,6 +352,12 @@ class AccountInvoiceImportHostedSource(models.Model):
             self.write({"state": "expired", "process_date": fields.Datetime.now()})
             return
 
+        # Pre-fill the human-readable invoice fields from the fetched payload
+        # so they are visible in the source view even when a supplier/product
+        # mapping is still missing. The 'processed' branch below overwrites
+        # them later with the authoritative values from the created bill.
+        self.write(self._payload_display_vals(payload))
+
         # 5. Resolve supplier mapping (skipped when the supplier is already
         # known, e.g. an API-driven feed that forces the partner)
         if self.forced_partner_id:
@@ -462,6 +468,37 @@ class AccountInvoiceImportHostedSource(models.Model):
                 "process_date": fields.Datetime.now(),
             }
         )
+
+    def _payload_display_vals(self, payload):
+        """Best-effort human-readable invoice preview built from the provider
+        payload, so the source view shows what the invoice is even before any
+        supplier/product mapping has been resolved.
+
+        Amounts are summed from the payload lines and may slightly differ from
+        the final bill (rounding, global discounts); they are overwritten with
+        the authoritative move values once the bill is created.
+        """
+        currency = self.env["res.currency"]
+        iso = payload.get("currency_iso")
+        if iso:
+            currency = currency.with_context(active_test=False).search(
+                [("name", "=", iso)], limit=1
+            )
+        amount_untaxed = 0.0
+        amount_total = 0.0
+        for line in payload.get("lines") or []:
+            amount = line.get("amount") or 0.0
+            tax_amount = line.get("tax_amount") or 0.0
+            amount_untaxed += amount
+            amount_total += amount + tax_amount
+        return {
+            "invoice_number": payload.get("invoice_number"),
+            "invoice_date": payload.get("invoice_date"),
+            "invoice_due_date": payload.get("due_date"),
+            "currency_id": currency.id or False,
+            "amount_untaxed": amount_untaxed,
+            "amount_total": amount_total,
+        }
 
     def _build_parsed_inv(self, payload, partner, usable_lines):
         lines = []
