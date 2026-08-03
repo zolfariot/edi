@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <menuitem
+        id="account_invoice_import_hosted_menu_root"
+        name="Hosted Invoice Import"
+        parent="account.menu_finance_configuration"
+        sequence="90"
+    />
+    <menuitem
+        id="account_invoice_import_hosted_source_menu"
+        name="Hosted Invoice Sources"
+        parent="account_invoice_import_hosted_menu_root"
+        action="account_invoice_import_hosted_source_action"
+        sequence="10"
+    />
+    <menuitem
+        id="account_invoice_import_hosted_submit_menu"
+        name="Import from Links"
+        parent="account_invoice_import_hosted_menu_root"
+        action="account_invoice_import_hosted_submit_action"
+        sequence="20"
+    />
+    <menuitem
+        id="account_invoice_import_hosted_supplier_mapping_menu"
+        name="Supplier Mappings"
+        parent="account_invoice_import_hosted_menu_root"
+        action="account_invoice_import_hosted_supplier_mapping_action"
+        sequence="30"
+    />
+    <menuitem
+        id="account_invoice_import_hosted_product_mapping_menu"
+        name="Product Mappings"
+        parent="account_invoice_import_hosted_menu_root"
+        action="account_invoice_import_hosted_product_mapping_action"
+        sequence="40"
+    />
+</odoo>
