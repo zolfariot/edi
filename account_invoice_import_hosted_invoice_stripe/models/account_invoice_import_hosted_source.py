@@ -30,6 +30,8 @@ EMAIL_WRAPPER_RE = re.compile(
 # Stripe customer billing portal (list every invoice of a portal session).
 STRIPE_PORTAL_SESSIONS_URL = "https://billing.stripe.com/v1/billing_portal/sessions"
 STRIPE_PORTAL_PAGE_SIZE = 100
+# API version used by the customer portal front-end for its invoice queries.
+STRIPE_PORTAL_API_VERSION = "2025-06-30.basil"
 # The portal page embeds bootstrap JSON in its HTML; the two values we need may
 # appear with plain, backslash-escaped or HTML-entity-encoded quotes.
 PORTAL_SESSION_ID_RE = re.compile(
@@ -293,6 +295,7 @@ class AccountInvoiceImportHostedSource(models.Model):
             "User-Agent": STRIPE_USER_AGENT,
             "Accept": "application/json",
             "X-Requested-With": "XMLHttpRequest",
+            "Stripe-Version": STRIPE_PORTAL_API_VERSION,
             # Never log this header: it grants read access to the invoices.
             "Authorization": f"Bearer {session_api_key}",
         }
