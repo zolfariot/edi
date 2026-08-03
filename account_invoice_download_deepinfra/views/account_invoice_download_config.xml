@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<!--
+  Copyright 2026 Akretion France (http://www.akretion.com/)
+  License AGPL-3.0 or later (http://www.gnu.org/licenses/agpl).
+-->
+<odoo>
+    <record id="account_invoice_download_config_form" model="ir.ui.view">
+        <field name="name">deepinfra.account.invoice.download.config.form</field>
+        <field name="model">account.invoice.download.config</field>
+        <field
+            name="inherit_id"
+            ref="account_invoice_download.account_invoice_download_config_form"
+        />
+        <field name="arch" type="xml">
+            <button name="run_button" position="after">
+                <button
+                    name="action_view_hosted_sources"
+                    type="object"
+                    string="Hosted Sources"
+                    icon="fa-file-text-o"
+                    invisible="backend != 'deepinfra' or hosted_source_count == 0"
+                />
+                <field name="hosted_source_count" invisible="1" />
+            </button>
+            <field name="password" position="after">
+                <field
+                    name="deepinfra_api_key"
+                    password="1"
+                    invisible="backend != 'deepinfra'"
+                    required="backend == 'deepinfra'"
+                />
+            </field>
+        </field>
+    </record>
+</odoo>

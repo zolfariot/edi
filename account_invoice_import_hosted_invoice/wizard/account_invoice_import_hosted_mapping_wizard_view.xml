@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="account_invoice_import_hosted_mapping_wizard_form" model="ir.ui.view">
+        <field name="name">account.invoice.import.hosted.mapping.wizard.form</field>
+        <field name="model">account.invoice.import.hosted.mapping.wizard</field>
+        <field name="arch" type="xml">
+            <form>
+                <field name="source_id" invisible="1" />
+                <field name="company_id" invisible="1" />
+                <field name="provider" invisible="1" />
+                <group string="Missing Supplier" invisible="not supplier_line_ids">
+                    <field name="supplier_line_ids" nolabel="1">
+                        <list editable="bottom">
+                            <field name="external_label" readonly="1" force_save="1" string="Supplier (as seen on invoice)" />
+                            <field name="partner_id" required="1" />
+                        </list>
+                    </field>
+                </group>
+                <group string="Missing Products" invisible="not product_line_ids">
+                    <field name="product_line_ids" nolabel="1">
+                        <list editable="bottom">
+                            <field name="external_label" readonly="1" force_save="1" string="Description (as seen on invoice)" />
+                            <field name="product_id" required="1" />
+                        </list>
+                    </field>
+                </group>
+                <footer>
+                    <button
+                        name="action_create_mappings_and_reprocess"
+                        type="object"
+                        string="Create Mappings and Reprocess"
+                        class="btn-primary"
+                    />
+                    <button string="Cancel" class="btn-secondary" special="cancel" />
+                </footer>
+            </form>
+        </field>
+    </record>
+</odoo>
