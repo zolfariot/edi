@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<odoo noupdate="1">
+    <record id="withorb" model="res.partner">
+        <field name="name">Withorb, Inc.</field>
+        <field name="is_company" eval="1" />
+        <field name="supplier_rank">1</field>
+        <field name="city">San Francisco</field>
+        <field name="country_id" ref="base.us" />
+        <field name="website">www.withorb.com</field>
+    </record>
+</odoo>

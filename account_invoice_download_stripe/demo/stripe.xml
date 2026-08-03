@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<odoo noupdate="1">
+    <record id="stripe" model="res.partner">
+        <field name="name">Stripe, Inc.</field>
+        <field name="is_company" eval="1" />
+        <field name="supplier_rank">1</field>
+        <field name="street">510 Townsend Street</field>
+        <field name="city">San Francisco</field>
+        <field name="zip">94103</field>
+        <field name="country_id" ref="base.us" />
+        <field name="website">www.stripe.com</field>
+    </record>
+</odoo>
