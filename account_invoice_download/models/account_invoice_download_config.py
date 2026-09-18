@@ -265,16 +265,47 @@ class AccountInvoiceDownloadConfig(models.Model):
                     origin=_("Download Bill '%s'") % self.display_name,
                 )
             except Exception as e:
-                logs["msg"].append(
-                    _(
-                        "Failed to create invoice. Error: %(error)s. "
-                        "(parsed_inv=%(parsed_inv)s import_config=%(import_config)s)",
-                        error=e,
-                        parsed_inv=parsed_inv,
-                        import_config=import_config,
-                    )
+                logger.warning(
+                    "Full invoice import failed for %s. Error: %s",
+                    parsed_inv.get("invoice_number"),
+                    e,
                 )
-                logs["result"] = "failure"
+                invoice = None
+                if isinstance(inv_struc, dict) and parsed_inv.get("invoice_number"):
+                    try:
+                        invoice = self._create_prefetch_invoice(parsed_inv)
+                    except Exception as e2:
+                        logger.error(
+                            "Pre-fetch fallback also failed for %s: %s",
+                            parsed_inv.get("invoice_number"),
+                            e2,
+                        )
+                if invoice:
+                    invoice_ids.append(invoice.id)
+                    logs["msg"].append(
+                        _(
+                            "Pre-fetched draft invoice %(invoice_number)s dated %(date)s "
+                            "(ID %(invoice_id)d). Please configure account/product "
+                            "mapping. Import error: %(error)s",
+                            invoice_number=parsed_inv.get("invoice_number", "-"),
+                            date=parsed_inv.get("date")
+                            and format_date(self.env, parsed_inv["date"])
+                            or "-",
+                            invoice_id=invoice.id,
+                            error=e,
+                        )
+                    )
+                else:
+                    logs["msg"].append(
+                        _(
+                            "Failed to create invoice. Error: %(error)s. "
+                            "(parsed_inv=%(parsed_inv)s import_config=%(import_config)s)",
+                            error=e,
+                            parsed_inv=parsed_inv,
+                            import_config=import_config,
+                        )
+                    )
+                    logs["result"] = "failure"
                 continue
             invoice_ids.append(invoice.id)
             logs["msg"].append(
@@ -307,6 +338,37 @@ class AccountInvoiceDownloadConfig(models.Model):
             invoice_ids,
         )
         return (invoice_ids, log.id)
+
+    def _create_prefetch_invoice(self, parsed_inv):
+        """Create a minimal draft vendor bill with header-level data only.
+        Used as a fallback when full invoice import fails (e.g. missing account
+        or product mapping), so that fetched invoice data is not lost."""
+        bdio = self.env["business.document.import"]
+        vals = {
+            "move_type": parsed_inv.get("type", "in_invoice"),
+            "partner_id": self.partner_id.id,
+            "invoice_date": parsed_inv.get("date") or False,
+            "ref": parsed_inv.get("invoice_number"),
+            "company_id": self.company_id.id,
+        }
+        if parsed_inv.get("date_due"):
+            vals["invoice_date_due"] = parsed_inv["date_due"]
+        if parsed_inv.get("currency"):
+            currency = bdio._match_currency(
+                parsed_inv["currency"], [], self.company_id, raise_exception=False
+            )
+            if currency:
+                vals["currency_id"] = currency.id
+        invoice = self.env["account.move"].create(vals)
+        invoice.message_post(
+            body=_(
+                "This draft vendor bill was pre-fetched from '%s'. "
+                "The full automatic import failed due to missing account or "
+                "product mapping. Please add invoice lines manually.",
+            )
+            % self.display_name
+        )
+        return invoice
 
     @api.model
     def run_cron(self):

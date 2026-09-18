@@ -7,6 +7,8 @@ dependencies = [
     "odoo-addon-account_invoice_download==18.0.*",
     "odoo-addon-account_invoice_download_ovh==18.0.*",
     "odoo-addon-account_invoice_download_scaleway==18.0.*",
+    "odoo-addon-account_invoice_download_stripe==18.0.*",
+    "odoo-addon-account_invoice_download_withorb==18.0.*",
     "odoo-addon-account_invoice_export==18.0.*",
     "odoo-addon-account_invoice_export_job==18.0.*",
     "odoo-addon-account_invoice_export_server_env==18.0.*",
