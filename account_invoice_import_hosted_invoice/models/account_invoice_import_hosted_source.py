@@ -519,6 +519,10 @@ class AccountInvoiceImportHostedSource(models.Model):
                 "name": name,
                 "qty": qty or 1.0,
                 "price_unit": price_unit,
+                # No pivot taxes: account_invoice_import then falls back to the
+                # product's vendor taxes. It must be a list, as _match_taxes()
+                # iterates over it for every line and crashes on None.
+                "taxes": [],
             }
             if line.get("period_start") and line.get("period_end"):
                 line_vals["date_start"] = line["period_start"]

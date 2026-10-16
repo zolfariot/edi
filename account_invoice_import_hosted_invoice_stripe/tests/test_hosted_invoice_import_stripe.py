@@ -155,6 +155,20 @@ class TestHostedInvoiceImportStripe(TransactionCase):
         )
         self.assertEqual(len(attachments), 1)  # only invoice pdf, receipt failed
 
+    def test_product_without_vendor_taxes(self):
+        self.product.supplier_taxes_id = False
+        source = self._create_source(RAW_URL + "-notax")
+        with patch(f"{MODULE}.requests.get") as mock_get:
+            mock_get.side_effect = [
+                _resp(json_data=STEP1_OK),
+                _resp(json_data=STEP2_OK),
+                _resp(content=b"invoice-pdf-bytes"),
+                _resp(status_code=404),
+            ]
+            source.process_sources()
+        self.assertEqual(source.state, "processed", source.error_message)
+        self.assertFalse(source.move_id.invoice_line_ids.tax_ids)
+
     def test_expired_invoice(self):
         source = self._create_source(RAW_URL + "-expired")
         with patch(f"{MODULE}.requests.get") as mock_get:
