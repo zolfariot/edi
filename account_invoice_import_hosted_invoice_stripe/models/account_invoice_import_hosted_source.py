@@ -27,6 +27,16 @@ EMAIL_WRAPPER_RE = re.compile(
     r"^https?://[^/]+\.email\.stripe\.com/CL0/(.+?)/\d+/", re.IGNORECASE
 )
 
+# Stripe ``taxability_reason`` of a line tax -> UNTDID 5305 VAT category code
+# (EN16931 BT-151). Other reasons are not mapped, because they don't tell
+# which VAT treatment applies on the buyer side.
+STRIPE_VAT_CATEGORIES = {
+    "reverse_charge": "AE",
+    "zero_rated": "Z",
+    "standard_rated": "S",
+    "reduced_rated": "S",
+}
+
 # Stripe customer billing portal (list every invoice of a portal session).
 STRIPE_PORTAL_SESSIONS_URL = "https://billing.stripe.com/v1/billing_portal/sessions"
 STRIPE_PORTAL_PAGE_SIZE = 100
@@ -128,7 +138,7 @@ class AccountInvoiceImportHostedSource(models.Model):
         step2_resp.raise_for_status()
         invoice_data = step2_resp.json()
 
-        return {
+        payload = {
             "supplier_candidates": [
                 merchant.get("business_name"),
                 merchant.get("support_email"),
@@ -142,6 +152,16 @@ class AccountInvoiceImportHostedSource(models.Model):
                 invoice_data, acct, secret, headers
             ),
         }
+        # Authoritative totals, global discounts included
+        if (
+            invoice_data.get("total_excluding_tax") is not None
+            and invoice_data.get("total") is not None
+        ):
+            payload["amount_untaxed"] = self._stripe_amount(
+                invoice_data["total_excluding_tax"]
+            )
+            payload["amount_total"] = self._stripe_amount(invoice_data["total"])
+        return payload
 
     def _stripe_parse_invoice_date(self, invoice_data):
         status_transitions = invoice_data.get("status_transitions") or {}
@@ -154,6 +174,13 @@ class AccountInvoiceImportHostedSource(models.Model):
         status_transitions = invoice_data.get("status_transitions") or {}
         return self._parse_date_epoch(status_transitions.get("paid_at"))
 
+    @api.model
+    def _stripe_amount(self, cents):
+        try:
+            return float(cents or 0) / 100.0
+        except (TypeError, ValueError):
+            return 0.0
+
     def _stripe_build_lines(self, invoice_data):
         lines = []
         for line in (invoice_data.get("lines") or {}).get("data") or []:
@@ -162,17 +189,17 @@ class AccountInvoiceImportHostedSource(models.Model):
                 or line.get("hosted_invoice_short_description")
                 or line.get("description")
             )
-            amount_cents = line.get("amount_excluding_tax", line.get("amount", 0))
-            try:
-                amount = float(amount_cents or 0) / 100.0
-            except (TypeError, ValueError):
-                amount = 0.0
+            taxes = line.get("taxes") or []
             tax_amount = 0.0
-            for tax in line.get("tax_amounts") or []:
-                try:
-                    tax_amount += float(tax.get("amount") or 0) / 100.0
-                except (TypeError, ValueError):
-                    continue
+            inclusive_tax_amount = 0.0
+            for tax in taxes:
+                line_tax_amount = self._stripe_amount(tax.get("amount"))
+                tax_amount += line_tax_amount
+                if tax.get("tax_behavior") == "inclusive":
+                    inclusive_tax_amount += line_tax_amount
+            # The line amount includes the taxes whose behavior is inclusive
+            amount = self._stripe_amount(line.get("amount")) - inclusive_tax_amount
+            vat_category, vat_rate = self._stripe_vat_category(taxes)
             period = line.get("period") or {}
             lines.append(
                 {
@@ -180,11 +207,33 @@ class AccountInvoiceImportHostedSource(models.Model):
                     "quantity": line.get("quantity") or 0.0,
                     "amount": amount,
                     "tax_amount": tax_amount,
+                    "vat_category": vat_category,
+                    "vat_rate": vat_rate,
                     "period_start": self._parse_date_epoch(period.get("start")),
                     "period_end": self._parse_date_epoch(period.get("end")),
                 }
             )
         return lines
+
+    def _stripe_vat_category(self, taxes):
+        """Return ``(vat_category, vat_rate)`` of a line, or ``(False, None)``.
+
+        Stripe doesn't expose the tax rate percentage here: it is derived from
+        the tax and taxable amounts. Lines with several taxes are not mapped.
+        """
+        if len(taxes) != 1:
+            return False, None
+        tax = taxes[0]
+        vat_category = STRIPE_VAT_CATEGORIES.get(tax.get("taxability_reason"))
+        if vat_category in ("AE", "Z"):
+            return vat_category, 0.0
+        if vat_category == "S" and tax.get("taxable_amount"):
+            try:
+                rate = float(tax.get("amount") or 0) / float(tax["taxable_amount"])
+            except (TypeError, ValueError):
+                return False, None
+            return vat_category, round(rate * 100, 2)
+        return False, None
 
     def _stripe_download_attachments(self, invoice_data, acct, secret, headers):
         attachments = []

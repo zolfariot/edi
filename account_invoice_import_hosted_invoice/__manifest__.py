@@ -3,7 +3,7 @@
 
 {
     "name": "Account Invoice Import Hosted Invoice",
-    "version": "18.0.1.0.0",
+    "version": "18.0.2.0.0",
     "category": "Accounting & Finance",
     "license": "AGPL-3",
     "summary": "Import vendor bills from hosted invoice links (Stripe, Withorb, ...)",
@@ -11,7 +11,6 @@
     "website": "https://github.com/OCA/edi",
     "depends": [
         "account_invoice_import",
-        "base_business_document_import",
     ],
     "external_dependencies": {
         "python": ["requests", "dateutil"],

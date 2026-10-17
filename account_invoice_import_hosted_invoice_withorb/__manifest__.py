@@ -3,7 +3,7 @@
 
 {
     "name": "Account Invoice Import Hosted Invoice Withorb",
-    "version": "18.0.1.0.0",
+    "version": "18.0.2.0.0",
     "category": "Accounting & Finance",
     "license": "AGPL-3",
     "summary": "Import vendor bills from Withorb hosted invoice links",

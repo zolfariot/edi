@@ -47,8 +47,8 @@ STEP2_OK = {
                 "hosted_invoice_product_name": "DeepInfra Test Credits",
                 "description": "DeepInfra Test Credits",
                 "quantity": 1,
-                "amount_excluding_tax": 1000,
-                "tax_amounts": [],
+                "amount": 1000,
+                "taxes": [],
                 "period": {},
             }
         ]

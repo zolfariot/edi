@@ -1,7 +1,6 @@
 # Copyright 2026 Akretion France (http://www.akretion.com/)
 # License AGPL-3.0 or later (https://www.gnu.org/licenses/agpl).
 
-import base64
 import hashlib
 import json
 import logging
@@ -390,13 +389,11 @@ class AccountInvoiceImportHostedSource(models.Model):
             )
 
         # 6. Business-level dedup (invoice number + partner)
-        parsed_inv_stub = {
-            "type": "in_invoice",
-            "invoice_number": payload.get("invoice_number"),
-        }
         aiio = self.env["account.invoice.import"]
+        import_config = self._prepare_import_config(company, partner, provider)
+        aiio._update_import_config(import_config)
         existing_move = aiio._invoice_already_exists(
-            parsed_inv_stub, partner, company.id
+            {"BT-1": payload.get("invoice_number"), "BT-3": "380"}, import_config
         )
         if existing_move:
             self.write(
@@ -442,15 +439,11 @@ class AccountInvoiceImportHostedSource(models.Model):
             )
             return
 
-        # 8. Build the parsed_inv pivot dict and create the bill
-        parsed_inv = self._build_parsed_inv(payload, partner, usable_lines)
-        import_config = partner._convert_to_import_config(company)
-        import_config["single_line"] = False
-        invoice = aiio.create_invoice(
-            parsed_inv,
-            import_config,
-            origin=_("Hosted invoice link import (%s)") % provider,
+        # 8. Build the EN16931 data dict and create the bill
+        parsed_inv = self._build_parsed_inv(
+            payload, partner, usable_lines, import_config
         )
+        invoice = aiio.create_invoice(parsed_inv, import_config)
 
         self.write(
             {
@@ -469,21 +462,44 @@ class AccountInvoiceImportHostedSource(models.Model):
             }
         )
 
-    def _payload_display_vals(self, payload):
-        """Best-effort human-readable invoice preview built from the provider
-        payload, so the source view shows what the invoice is even before any
-        supplier/product mapping has been resolved.
+    def _prepare_import_config(self, company, partner, provider):
+        return {
+            "company": company,
+            "invoice_type": "in",
+            "partner": partner,
+            "origin": _("Hosted invoice link import (%s)") % provider,
+            # Existing bills are detected before resolving product mappings
+            # (step 6), so finding one in create_invoice() is unexpected.
+            "if_already_exists": "raise",
+            # Mapped product of each line, keyed by line identifier (BT-126):
+            # EN16931 has no field to carry an Odoo product. Filled by
+            # _build_parsed_inv(), read by account.invoice.import.
+            "hosted_products": {},
+        }
 
-        Amounts are summed from the payload lines and may slightly differ from
-        the final bill (rounding, global discounts); they are overwritten with
-        the authoritative move values once the bill is created.
-        """
+    @api.model
+    def _payload_currency(self, payload):
         currency = self.env["res.currency"]
         iso = payload.get("currency_iso")
         if iso:
             currency = currency.with_context(active_test=False).search(
                 [("name", "=", iso)], limit=1
             )
+        return currency
+
+    @api.model
+    def _payload_totals(self, payload):
+        """Return ``(amount_untaxed, amount_total)`` of the payload.
+
+        Providers may give the authoritative invoice totals in the optional
+        ``amount_untaxed``/``amount_total`` payload keys (they include global
+        discounts); otherwise the totals are summed from the payload lines.
+        """
+        if (
+            payload.get("amount_untaxed") is not None
+            and payload.get("amount_total") is not None
+        ):
+            return payload["amount_untaxed"], payload["amount_total"]
         amount_untaxed = 0.0
         amount_total = 0.0
         for line in payload.get("lines") or []:
@@ -491,41 +507,63 @@ class AccountInvoiceImportHostedSource(models.Model):
             tax_amount = line.get("tax_amount") or 0.0
             amount_untaxed += amount
             amount_total += amount + tax_amount
+        return amount_untaxed, amount_total
+
+    def _payload_display_vals(self, payload):
+        """Best-effort human-readable invoice preview built from the provider
+        payload, so the source view shows what the invoice is even before any
+        supplier/product mapping has been resolved.
+
+        Amounts may slightly differ from the final bill (rounding); they are
+        overwritten with the authoritative move values once the bill is
+        created.
+        """
+        amount_untaxed, amount_total = self._payload_totals(payload)
         return {
             "invoice_number": payload.get("invoice_number"),
             "invoice_date": payload.get("invoice_date"),
             "invoice_due_date": payload.get("due_date"),
-            "currency_id": currency.id or False,
+            "currency_id": self._payload_currency(payload).id or False,
             "amount_untaxed": amount_untaxed,
             "amount_total": amount_total,
         }
 
-    def _build_parsed_inv(self, payload, partner, usable_lines):
+    def _build_parsed_inv(self, payload, partner, usable_lines, import_config):
+        """Build the EN16931 data dict expected by account_invoice_import.
+
+        Line amounts are tax excluded. The VAT category/rate of a line is only
+        used when its mapped product has no vendor tax (see
+        account.invoice.import ``_match_vat_tax_bg25()``).
+        """
+        currency = (
+            self._payload_currency(payload) or import_config["company"].currency_id
+        )
         lines = []
-        amount_total = 0.0
-        for line, product in usable_lines:
-            qty = line.get("quantity") or 0.0
+        for index, (line, product) in enumerate(usable_lines, start=1):
+            line_ident = str(index)
+            qty = line.get("quantity") or 1.0
             amount = line.get("amount") or 0.0
-            tax_amount = line.get("tax_amount") or 0.0
-            gross = amount + tax_amount
-            price_unit = gross / qty if qty else gross
-            amount_total += gross
             period_text = self._format_period_text(
                 line.get("period_start"), line.get("period_end")
             )
-            name = (product.name or line.get("description") or "") + period_text
-            line_vals = {
-                "product": {"recordset": product},
-                "name": name,
-                "qty": qty or 1.0,
-                "price_unit": price_unit,
+            line_dict = {
+                "BT-126": line_ident,
+                "BT-129": qty,
+                "BT-131": currency.round(amount),
+                "BT-146": amount / qty,
+                "BT-153": (product.name or line.get("description") or "") + period_text,
             }
+            if line.get("vat_category"):
+                line_dict["BT-151"] = line["vat_category"]
+                if line.get("vat_rate") is not None:
+                    line_dict["BT-152"] = line["vat_rate"]
             if line.get("period_start") and line.get("period_end"):
-                line_vals["date_start"] = line["period_start"]
-                line_vals["date_end"] = line["period_end"]
-            lines.append(line_vals)
+                line_dict["BT-134"] = fields.Date.to_date(line["period_start"])
+                line_dict["BT-135"] = fields.Date.to_date(line["period_end"])
+            lines.append(line_dict)
+            import_config["hosted_products"][line_ident] = product
 
-        attachments = {}
+        attachments = []
         raw_attachments = payload.get("attachments") or []
         # Always record the invoice PDF before the receipt PDF so the invoice
         # ends up with the smaller ir.attachment database id.
@@ -540,19 +578,29 @@ class AccountInvoiceImportHostedSource(models.Model):
             filename = self._attachment_filename(
                 payload, partner, att.get("kind") or "invoice"
             )
-            attachments[filename] = base64.b64encode(content).decode("ascii")
+            attachments.append(
+                {
+                    "BT-122": filename,
+                    "BT-125": content,
+                    "BT-125-1": "application/pdf",
+                    "BT-125-2": filename,
+                }
+            )
 
+        amount_untaxed, amount_total = self._payload_totals(payload)
+        amount_untaxed = currency.round(amount_untaxed)
+        amount_total = currency.round(amount_total)
         parsed_inv = {
-            "type": "in_invoice",
-            "partner": {"recordset": partner},
-            "currency": {"iso": payload.get("currency_iso")},
-            "invoice_number": payload.get("invoice_number"),
-            "date": payload.get("invoice_date"),
-            "date_due": payload.get("due_date"),
-            "amount_total": amount_total,
-            "lines": lines,
-            "attachments": attachments,
-            "chatter_msg": [],
+            "BT-1": payload.get("invoice_number"),
+            "BT-2": fields.Date.to_date(payload.get("invoice_date")),
+            "BT-3": "380",  # commercial invoice
+            "BT-5": payload.get("currency_iso"),
+            "BT-9": fields.Date.to_date(payload.get("due_date")),
+            "BT-109": amount_untaxed,
+            "BT-110": currency.round(amount_total - amount_untaxed),
+            "BT-112": amount_total,
+            "BG-24": attachments,
+            "BG-25": lines,
         }
         return parsed_inv
 
