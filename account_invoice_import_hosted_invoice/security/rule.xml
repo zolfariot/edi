@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="account_invoice_import_hosted_source_comp_rule" model="ir.rule">
+        <field name="name">Hosted Invoice Source multi-company</field>
+        <field name="model_id" ref="model_account_invoice_import_hosted_source" />
+        <field name="domain_force">[('company_id', 'in', company_ids)]</field>
+    </record>
+    <record
+        id="account_invoice_import_hosted_supplier_mapping_comp_rule"
+        model="ir.rule"
+    >
+        <field name="name">Hosted Invoice Supplier Mapping multi-company</field>
+        <field
+            name="model_id"
+            ref="model_account_invoice_import_hosted_supplier_mapping"
+        />
+        <field name="domain_force">[('company_id', 'in', company_ids)]</field>
+    </record>
+    <record
+        id="account_invoice_import_hosted_product_mapping_comp_rule"
+        model="ir.rule"
+    >
+        <field name="name">Hosted Invoice Product Mapping multi-company</field>
+        <field
+            name="model_id"
+            ref="model_account_invoice_import_hosted_product_mapping"
+        />
+        <field name="domain_force">[('company_id', 'in', company_ids)]</field>
+    </record>
+</odoo>

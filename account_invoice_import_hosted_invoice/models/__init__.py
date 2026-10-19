@@ -1,0 +1,5 @@
+from . import account_invoice_import_hosted_source
+from . import account_invoice_import_hosted_supplier_mapping
+from . import account_invoice_import_hosted_product_mapping
+from . import account_move
+from . import res_partner
